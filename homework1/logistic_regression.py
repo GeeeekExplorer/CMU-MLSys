@@ -30,6 +30,7 @@ def logistic_regression(X: ad.Node, W: ad.Node, b: ad.Node) -> ad.Node:
         When evaluating, it should have shape (batch_size, num_classes).
     """
     """TODO: Your code here"""
+    return ad.matmul(X, W) + ad.expand(b, 0)
 
 
 def softmax_loss(Z: ad.Node, y_one_hot: ad.Node, batch_size: int) -> ad.Node:
@@ -64,6 +65,7 @@ def softmax_loss(Z: ad.Node, y_one_hot: ad.Node, batch_size: int) -> ad.Node:
     Try to think about why our softmax loss may need the batch size.
     """
     """TODO: Your code here"""
+    return ad.sum(ad.log(ad.sum(ad.exp(Z), -1)) - ad.sum(Z * y_one_hot, -1), 0) / batch_size
 
 
 def sgd_epoch(
@@ -125,6 +127,17 @@ def sgd_epoch(
         The average training loss of this epoch.
     """
     """TODO: Your code here"""
+    n = len(y)
+    Y = np.zeros((n, b.shape[0]))
+    Y[range(n), y] = 1
+    total_loss = 0
+    for i in range(0, n, batch_size):
+        j = i + batch_size
+        _, loss, grad_W, grad_b = f_run_model(X[i:j], Y[i:j], W, b)
+        total_loss += loss
+        W -= lr * grad_W
+        b -= lr * grad_b
+    return W, b, total_loss / ((n + batch_size - 1) // batch_size)
 
 
 def train_model():

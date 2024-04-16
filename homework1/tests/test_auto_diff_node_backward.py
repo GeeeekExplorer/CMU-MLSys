@@ -14,7 +14,6 @@ def check_evaluator_output(
     output_values = evaluator.run(input_values)
     assert len(output_values) == len(expected_outputs)
     for output_val, expected_val in zip(output_values, expected_outputs):
-        print(repr(output_val))
         np.testing.assert_allclose(actual=output_val, desired=expected_val)
 
 
