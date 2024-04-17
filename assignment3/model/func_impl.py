@@ -65,20 +65,25 @@ def get_info(
 
     # Get the mp_idx, dp_idx from rank, mp_size and dp_size (you may not need to use all three of them)
 
-    ...
+    mp_idx = rank % mp_size
+    dp_idx = rank // mp_size
 
     # Get the model/data parallel communication groups
     # the model/data parallel communication group is required to apply mpi operations within the scope of the group
     # Hint: try to figure out the relationship between the mp_idx, dp_idx with the mp/dp communication group
     #       and use the comm.Split() function to get the corresponding group.
 
-    ...
+    mp_comm = comm.Split(key=rank, color=dp_idx)
+    dp_comm = comm.Split(key=rank, color=mp_idx)
 
     # Derive the part_in_dim and part_out_dim depend on is_fc1 and is_megatron_mp
 
-    ...
+    if not is_fc1 and is_megatron_mp:
+        part_in_dim, part_out_dim = in_dim // mp_size, out_dim
+    else:
+        part_in_dim, part_out_dim = in_dim, out_dim // mp_size
 
-    raise NotImplementedError
+    return mp_idx, dp_idx, mp_comm, dp_comm, part_in_dim, part_out_dim
 
 
 def naive_collect_forward_input(
@@ -115,7 +120,10 @@ def naive_collect_forward_input(
     #       might not align with your expected layout. In order to get the correct layout, you may wish to use some NumPy
     #       functions (np.split and np.concatenate might be helpful).
 
-    raise NotImplementedError
+    b, d = x.shape
+    collected_x = np.empty_like(x, shape=(d*mp_size, b))
+    mp_comm.Allgather(np.ascontiguousarray(x.T), collected_x)
+    return collected_x.T
 
 
 def naive_collect_forward_output(
@@ -147,7 +155,10 @@ def naive_collect_forward_output(
 
     # Hint: you might have just implemented something similar ^-^
 
-    raise NotImplementedError
+    b, d = out.shape
+    collected_out = np.empty_like(out, shape=(d*mp_size, b))
+    mp_comm.Allgather(np.ascontiguousarray(out.T), collected_out)
+    return collected_out.T
 
 
 def megatron_collect_forward_input(
@@ -179,7 +190,8 @@ def megatron_collect_forward_input(
 
     # Hint: you don't need all the input parameters to get the collected_x
 
-    raise NotImplementedError
+    collected_x = x
+    return collected_x
 
 
 def megatron_collect_forward_output(
@@ -212,7 +224,9 @@ def megatron_collect_forward_output(
     # Hint: try to work through a toy forward example for megatron-style model parallel to figure out the
     #       the communication functions that you might need
 
-    raise NotImplementedError
+    collected_out = np.empty_like(out)
+    mp_comm.Allreduce(out, collected_out)
+    return collected_out
 
 
 def naive_collect_backward_output(
@@ -244,7 +258,8 @@ def naive_collect_backward_output(
 
     # Hint: you might want to use np.split to get the collected_output_grad for each MP node
 
-    raise NotImplementedError
+    collected_output_grad = np.split(output_grad, mp_size, -1)[mp_group_idx]
+    return collected_output_grad
 
 
 def naive_collect_backward_x(
@@ -279,7 +294,10 @@ def naive_collect_backward_x(
 
     # Hint 2: You might want to use reduce_scatter
 
-    raise NotImplementedError
+    b, d = grad_x.shape
+    collected_grad_x = np.empty_like(grad_x, shape=(d//mp_size, b))
+    mp_comm.Reduce_scatter(np.ascontiguousarray(grad_x.T), collected_grad_x)
+    return collected_grad_x.T
 
 
 def megatron_collect_backward_output(
@@ -311,7 +329,8 @@ def megatron_collect_backward_output(
 
     # Hint: your implementation should be within one line of code
 
-    raise NotImplementedError
+    collected_output_grad = output_grad
+    return collected_output_grad
 
 
 def megatron_collect_backward_x(
@@ -343,7 +362,8 @@ def megatron_collect_backward_x(
 
     # Hint: your implementation should be within one line of code
 
-    raise NotImplementedError
+    collected_grad_x =  grad_x
+    return collected_grad_x
 
 
 def collect_weight_grad(
@@ -378,4 +398,8 @@ def collect_weight_grad(
 
     # Hint: Think about how you might want to aggregate the gradients from different nodes in data parallel training
 
-    raise NotImplementedError
+    collected_grad_w = np.empty_like(grad_w)
+    dp_comm.Allreduce(grad_w, collected_grad_w)
+    collected_grad_b = np.empty_like(grad_b)
+    dp_comm.Allreduce(grad_b, collected_grad_b)
+    return collected_grad_w, collected_grad_b

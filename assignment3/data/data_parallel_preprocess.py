@@ -45,5 +45,8 @@ def split_data(
 
     # Try to get the correct start_idx and end_idx from dp_size, mp_size and rank and return
     # the corresponding data
-
-    raise NotImplementedError
+    chunk_size = len(x_train) // dp_size
+    dp_rank = rank // mp_size
+    start = dp_rank * chunk_size
+    end = start + chunk_size
+    return x_train[start:end], y_train[start:end]
