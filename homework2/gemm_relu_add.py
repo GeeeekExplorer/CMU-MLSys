@@ -121,15 +121,15 @@ def shared_memory_tiling(
     # automatically inferred.
     i_outer, i_inner = sch.split(i, factors=[None, tile_x])
     # TODO: Split loop `j` into an outer loop and an inner loop with regard to tile_y.
-    ...
+    j_outer, j_inner = sch.split(j, factors=[None, tile_y])
     # TODO: Split loop `k` into an outer loop and an inner loop with regard to tile_k.
-    ...
+    k_outer, k_inner = sch.split(k, factors=[None, tile_k])
     # TODO: Reorder loops into order [i_outer, j_outer, k_outer, i_inner, j_inner, k_inner]
-    ...
+    sch.reorder(i_outer, j_outer, k_outer, i_inner, j_inner, k_inner)
     # TODO: Bind `i_outer` to blockIdx.x.
-    ...
+    sch.bind(i_outer, "blockIdx.x")
     # TODO: Bind `j_outer` to blockIdx.y.
-    ...
+    sch.bind(j_outer, "blockIdx.y")
 
     # NOTE: by finishing the schedule above, you have already specified
     # the computation region of each thread block.
@@ -147,11 +147,11 @@ def shared_memory_tiling(
     A_shared = sch.cache_read(block_gemm, read_buffer_index=0, storage_scope="shared")
     # TODO: Move the read stage to the location under loop `k_outer` with `compute_at`.
     # Think about why we move it under `k_outer`?
-    ...
+    sch.compute_at(A_shared, k_outer)
     # TODO: Generate the shared memory read stage for `B`, whose read buffer index is 1.
-    ...
+    B_shared = sch.cache_read(block_gemm, read_buffer_index=1, storage_scope="shared")
     # TODO: Move the read stage to the location under loop `k_outer`.
-    ...
+    sch.compute_at(B_shared, k_outer)
 
     return A_shared, B_shared
 
@@ -189,6 +189,12 @@ def register_tiling(
     # which are exactly the `i_inner`, `j_inner` and `k_inner` you get
     # in the last task.
     i, j, k = sch.get_loops(block_gemm)[-3:]
+    i_outer, i_inner = sch.split(i, factors=[None, thread_tile_x])
+    j_outer, j_inner = sch.split(j, factors=[None, thread_tile_y])
+    k_outer, k_inner = sch.split(k, factors=[None, thread_tile_k])
+    sch.reorder(i_outer, j_outer, k_outer, i_inner, j_inner, k_inner)
+    sch.bind(i_outer, "threadIdx.x")
+    sch.bind(j_outer, "threadIdx.y")
 
     """TODO: Your code here"""
     # Hints:
@@ -198,8 +204,10 @@ def register_tiling(
     # in shared memory tiling.
     # - Use "local" as the storage scope of `cache_read` to generate
     # local register read stages.
-
-    ...
+    A_register = sch.cache_read(block_gemm, read_buffer_index=0, storage_scope="local")
+    sch.compute_at(A_register, k_outer)
+    B_register = sch.cache_read(block_gemm, read_buffer_index=1, storage_scope="local")
+    sch.compute_at(B_register, k_outer)
 
 
 def cooperative_fetching(
@@ -240,15 +248,16 @@ def cooperative_fetching(
     def _cooperative_fetching_impl(block: BlockRV):
         # TODO: Fetch the loops of the read stage with `get_loops`.
         # Think about what loops and how many we want to fetch here?
-        ...
+        ax0, ax1 = sch.get_loops(block)[-2:]
         # TODO: Fuse these loops into a single loop.
-        ...
+        loop = sch.fuse(ax0, ax1)
         # TODO: Split the fused loop into **three** loops.
         #       The inner two loops should have extent `thread_extent_y`
         #       and `thread_extent_x` respectively.
-        ...
+        _, tx, ty = sch.split(loop, [None, thread_extent_x, thread_extent_y])
         # TODO: Bind two loops among to `threadIdx.x` and `threadIdx.y` respectively.
-        ...
+        sch.bind(tx, "threadIdx.x")
+        sch.bind(ty, "threadIdx.y")
 
     _cooperative_fetching_impl(A_shared)
     _cooperative_fetching_impl(B_shared)
@@ -270,13 +279,13 @@ def write_cache(sch: tir.Schedule) -> None:
     """
     block_gemm = sch.get_block("gemm")
     # TODO: Use `sch.get_loops` to find out the location of inserting write cache.
-    loop_index = ...
+    loop_index = 4
     write_cache_loc = sch.get_loops(block_gemm)[loop_index]
 
     # TODO: Generate the local register write stage for GeMM, whose write buffer index is 0.
-    ...
+    mm_register = sch.cache_write(block_gemm, 0, "local")
     # TODO: Move the generated write cache to the proper location with `reverse_compute_at`.
-    ...
+    sch.reverse_compute_at(mm_register, write_cache_loc)
 
 
 def epilogue_fusion(sch: tir.Schedule) -> None:
@@ -294,9 +303,11 @@ def epilogue_fusion(sch: tir.Schedule) -> None:
     - We do not return `sch`, because it is in-place updated during scheduling.
     """
     # TODO: Use `get_block` to retrieve the addition computation and ReLU computation.
-    ...
+    block_relu = sch.get_block("relu")
+    block_add = sch.get_block("add")
     # TODO: Use `reverse_compute_inline` to fuse addition into ReLU, and fuse ReLU into GeMM.
-    ...
+    sch.reverse_compute_inline(block_relu)
+    sch.reverse_compute_inline(block_add)
 
 
 if __name__ == "__main__":
